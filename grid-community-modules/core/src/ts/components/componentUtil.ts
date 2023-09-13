@@ -6,7 +6,7 @@ import { iterateObject } from '../utils/object';
 import { includes } from '../utils/array';
 import { values } from '../utils/generic';
 import { WithoutGridCommon } from '../interfaces/iCommon';
-import { ColDefPropertyChangedEvent } from '../columns/columnModel';
+
 export class ComponentUtil {
 
     // all events
@@ -44,7 +44,11 @@ export class ComponentUtil {
         Events.EVENT_CELL_FOCUS_CLEARED,
         Events.EVENT_GRID_STYLES_CHANGED,
         Events.EVENT_FILTER_DESTROYED,
-        Events.EVENT_ROW_DATA_UPDATE_STARTED
+        Events.EVENT_ROW_DATA_UPDATE_STARTED,
+        Events.EVENT_ADVANCED_FILTER_ENABLED_CHANGED,
+        Events.EVENT_DATA_TYPES_INFERRED,
+        Events.EVENT_FIELD_VALUE_CHANGED,
+        Events.EVENT_FIELD_PICKER_VALUE_SELECTED
     ];
 
     // events that are available for use by users of AG Grid and so should be documented
@@ -68,6 +72,8 @@ export class ComponentUtil {
     public static FUNCTION_PROPERTIES = PropertyKeys.FUNCTION_PROPERTIES;
     public static ALL_PROPERTIES = PropertyKeys.ALL_PROPERTIES;
     public static ALL_PROPERTIES_SET = new Set(PropertyKeys.ALL_PROPERTIES);
+
+    private static changeSetId = 0;
 
     private static getCoercionLookup() {
         let coercionLookup = {} as any;
@@ -151,7 +157,7 @@ export class ComponentUtil {
         if (!changes || Object.keys(changes).length === 0) {
             return;
         }
-
+        this.changeSetId++;
         const changesToApply = { ...changes };
 
         // We manually call these updates so that we can provide a different source of gridOptionsChanged
@@ -173,12 +179,18 @@ export class ComponentUtil {
             delete changesToApply.columnDefs;
         }
 
-        Object.keys(changesToApply).forEach(key => {
+        // Update all the properties on GridOptions first so that we can optimise updates
+        // and so that any update logic triggered off events is only run after all the
+        // props have been updated. This avoids potential sync issues
+        const updates = Object.keys(changesToApply).map(key => {
             const gridKey = key as keyof GridOptions;
-
             const coercedValue = ComponentUtil.getValue(gridKey, changesToApply[gridKey].currentValue);
-            api.__setProperty(gridKey, coercedValue);
+            // Use isChanged to control event via force option as by the time we call __updateProperty the gridOptions[key] will already contain the new value.
+            const isChanged = api.__setPropertyOnly(gridKey, coercedValue);
+            return {gridKey, coercedValue, isChanged}
         });
+        // Then cause any property change event listeners to be fired.
+        updates.forEach((u) => api.__updateProperty(u.gridKey, u.coercedValue, u.isChanged, this.changeSetId));
 
         // copy changes into an event for dispatch
         const event: WithoutGridCommon<ComponentStateChangedEvent> = {

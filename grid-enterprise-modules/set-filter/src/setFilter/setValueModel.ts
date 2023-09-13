@@ -1,6 +1,6 @@
 import {
+    _,
     IClientSideRowModel,
-    Column,
     SetFilterParams,
     AgPromise,
     SetFilterValues,
@@ -12,7 +12,6 @@ import {
     IEventEmitter,
     EventService,
     RowNode,
-    _,
     SetFilterModelValue,
     ValueFormatterParams,
     GridOptionsService,
@@ -24,6 +23,7 @@ import { ClientSideValuesExtractor } from '../clientSideValueExtractor';
 import { FlatSetDisplayValueModel } from './flatSetDisplayValueModel';
 import { ISetDisplayValueModel, SetFilterModelTreeItem } from './iSetDisplayValueModel';
 import { TreeSetDisplayValueModel } from './treeSetDisplayValueModel';
+import { SetValueModelFilteringKeys } from './filteringKeys';
 
 export enum SetFilterModelValuesType {
     PROVIDED_LIST, PROVIDED_CALLBACK, TAKEN_FROM_GRID_VALUES
@@ -70,6 +70,9 @@ export class SetValueModel<V> implements IEventEmitter {
     private valuesType: SetFilterModelValuesType;
     private miniFilterText: string | null = null;
 
+    /** When true, in excelMode = 'windows', it adds previously selected filter items to newly checked filter selection */
+    private addCurrentSelectionToFilter: boolean = false;
+
     /** Values provided to the filter for use. */
     private providedValues: SetFilterValues<any, V> | null = null;
 
@@ -84,6 +87,14 @@ export class SetValueModel<V> implements IEventEmitter {
 
     /** Keys that have been selected for this filter. */
     private selectedKeys = new Set<string | null>();
+
+    /**
+     * Here we keep track of the keys that are currently being used for filtering.
+     * In most cases, the filtering keys are the same as the selected keys,
+     * but for the specific case when excelMode = 'windows' and the user has ticked 'Add current selection to filter',
+     * the filtering keys can be different from the selected keys.
+     */
+    private filteringKeys: SetValueModelFilteringKeys;
 
     private initialised: boolean = false;
 
@@ -125,6 +136,7 @@ export class SetValueModel<V> implements IEventEmitter {
         this.doesRowPassOtherFilters = doesRowPassOtherFilter;
         this.suppressSorting = suppressSorting || false;
         this.convertValuesToStrings = !!convertValuesToStrings;
+        this.filteringKeys = new SetValueModelFilteringKeys({ caseFormat: this.caseFormat });
         const keyComparator = comparator ?? colDef.comparator as (a: any, b: any) => number;
         const treeDataOrGrouping = !!treeDataTreeList || !!groupingTreeList;
         // If using complex objects and a comparator is provided, sort by values, otherwise need to sort by the string keys.
@@ -140,6 +152,7 @@ export class SetValueModel<V> implements IEventEmitter {
         this.keyComparator = keyComparator as any ?? _.defaultComparator;
         this.caseSensitive = !!caseSensitive
         const getDataPath = gridOptionsService.get('getDataPath');
+        const groupAllowUnbalanced = gridOptionsService.is('groupAllowUnbalanced');
 
         if (rowModel.getType() === 'clientSide') {
             this.clientSideValuesExtractor = new ClientSideValuesExtractor(
@@ -151,7 +164,8 @@ export class SetValueModel<V> implements IEventEmitter {
                 valueService,
                 treeDataOrGrouping,
                 !!treeDataTreeList,
-                getDataPath
+                getDataPath,
+                groupAllowUnbalanced
             );
         }
 
@@ -374,6 +388,11 @@ export class SetValueModel<V> implements IEventEmitter {
             return false;
         }
 
+        if (value === null) {
+            // Reset 'Add current selection to filter' checkbox when clearing mini filter
+            this.setAddCurrentSelectionToFilter(false);
+        }
+
         this.miniFilterText = value;
         this.updateDisplayedValues('miniFilter');
 
@@ -392,7 +411,12 @@ export class SetValueModel<V> implements IEventEmitter {
 
         // if no filter, just display all available values
         if (this.miniFilterText == null) {
-            this.displayValueModel.updateDisplayedValuesToAllAvailable((key: string | null) => this.getValue(key), allKeys, this.availableKeys, source);
+            this.displayValueModel.updateDisplayedValuesToAllAvailable(
+                (key: string | null) => this.getValue(key),
+                allKeys,
+                this.availableKeys,
+                source,
+            );
             return;
         }
 
@@ -426,6 +450,10 @@ export class SetValueModel<V> implements IEventEmitter {
         return this.displayValueModel.getSelectAllItem();
     }
 
+    public getAddSelectionToFilterItem(): string | SetFilterModelTreeItem {
+        return this.displayValueModel.getAddSelectionToFilterItem();
+    }
+
     public hasSelections(): boolean {
         return this.filterParams.defaultToNothingSelected ?
             this.selectedKeys.size > 0 :
@@ -444,13 +472,38 @@ export class SetValueModel<V> implements IEventEmitter {
         return this.allValues.get(key)!;
     }
 
+    public setAddCurrentSelectionToFilter(value: boolean) {
+        this.addCurrentSelectionToFilter = value;
+    }
+
+    private isInWindowsExcelMode(): boolean {
+        return this.filterParams.excelMode === 'windows';
+    }
+
+    public isAddCurrentSelectionToFilterChecked(): boolean {
+        return this.isInWindowsExcelMode() && this.addCurrentSelectionToFilter;
+    }
+
+    public showAddCurrentSelectionToFilter(): boolean {
+        // We only show the 'Add current selection to filter' option
+        // when excel mode is enabled with 'windows' mode
+        // and when the users types a value in the mini filter.
+        return (
+            this.isInWindowsExcelMode()
+            && _.exists(this.miniFilterText)
+            && this.miniFilterText.length > 0
+        );
+    }
+
     public selectAllMatchingMiniFilter(clearExistingSelection = false): void {
         if (this.miniFilterText == null) {
             // ensure everything is selected
             this.selectedKeys = new Set(this.allValues.keys());
         } else {
             // ensure everything that matches the mini filter is selected
-            if (clearExistingSelection) { this.selectedKeys.clear(); }
+            if (clearExistingSelection) {
+                this.selectedKeys.clear();
+            }
 
             this.displayValueModel.forEachDisplayedKey(key => this.selectedKeys.add(key));
         }
@@ -492,7 +545,34 @@ export class SetValueModel<V> implements IEventEmitter {
     }
 
     public getModel(): SetFilterModelValue | null {
-        return this.hasSelections() ? Array.from(this.selectedKeys) : null;
+        if (!this.hasSelections()) {
+            return null;
+        }
+
+        // When excelMode = 'windows' and the user has ticked 'Add current selection to filter'
+        // the filtering keys can be different from the selected keys, and they should be included
+        // in the model.
+        const filteringKeys = this.isAddCurrentSelectionToFilterChecked()
+            ? this.filteringKeys.allFilteringKeys()
+            : null;
+
+        if (filteringKeys && filteringKeys.size > 0) {
+            if (this.selectedKeys) {
+                // When existing filtering keys are present along with selected keys,
+                // we combine them and return the result.
+                // We use a set structure to avoid duplicates
+                const modelKeys = new Set<string | null>([
+                    ...Array.from(filteringKeys),
+                    ...Array.from(this.selectedKeys).filter(key => !filteringKeys.has(key)),
+                ]);
+                return Array.from(modelKeys);
+            } else {
+                return Array.from(filteringKeys);
+            }
+        }
+
+        // No extra filtering keys are present - so just return the selected keys
+        return Array.from(this.selectedKeys);
     }
 
     public setModel(model: SetFilterModelValue | null): AgPromise<void> {
@@ -509,7 +589,7 @@ export class SetValueModel<V> implements IEventEmitter {
                 });
 
                 model.forEach(unformattedKey => {
-                    const formattedKey = this.caseFormat(unformattedKey);
+                    const formattedKey = this.caseFormat(_.makeNull(unformattedKey));
                     const existingUnformattedKey = existingFormattedKeys.get(formattedKey);
                     if (existingUnformattedKey !== undefined) {
                         this.selectKey(existingUnformattedKey);
@@ -569,5 +649,29 @@ export class SetValueModel<V> implements IEventEmitter {
             }
             return 0;
         };
+    }
+
+    public setAppliedModelKeys(appliedModelKeys: Set<string | null> | null): void {
+        this.filteringKeys.setFilteringKeys(appliedModelKeys);
+    }
+
+    public addToAppliedModelKeys(appliedModelKey: string | null): void {
+        this.filteringKeys.addFilteringKey(appliedModelKey);
+    }
+
+    public getAppliedModelKeys(): Set<string | null> | null {
+        return this.filteringKeys.allFilteringKeys();
+    }
+
+    public getCaseFormattedAppliedModelKeys(): Set<string | null> | null {
+        return this.filteringKeys.allFilteringKeysCaseFormatted()
+    }
+
+    public hasAppliedModelKey(appliedModelKey: string | null): boolean {
+        return this.filteringKeys.hasCaseFormattedFilteringKey(appliedModelKey);
+    }
+
+    public hasAnyAppliedModelKey(): boolean {
+        return !this.filteringKeys.noAppliedFilteringKeys();
     }
 }

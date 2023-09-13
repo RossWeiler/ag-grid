@@ -1,9 +1,10 @@
-import { Autowired, BeanStub, FocusService, GridApi, LoadSuccessParams, NumberSequence, PostConstruct, PreDestroy, RowNode, IRowNode, ServerSideGroupLevelParams, GetRowIdFunc, WithoutGridCommon, GetRowIdParams, Events } from "@ag-grid-community/core";
+import { Autowired, BeanStub, FocusService, GridApi, LoadSuccessParams, NumberSequence, PostConstruct, PreDestroy, RowNode, IRowNode, ServerSideGroupLevelParams, WithoutGridCommon, GetRowIdParams } from "@ag-grid-community/core";
 import { BlockUtils } from "../../blocks/blockUtils";
 import { NodeManager } from "../../nodeManager";
 import { LazyStore } from "./lazyStore";
 import { LazyBlockLoader } from "./lazyBlockLoader";
 import { MultiIndexMap } from "./multiIndexMap";
+import { ServerSideRowModel } from "src/serverSideRowModel/serverSideRowModel";
 
 interface LazyStoreNode {
     id: string;
@@ -16,6 +17,7 @@ export class LazyCache extends BeanStub {
     @Autowired('ssrmBlockUtils') private blockUtils: BlockUtils;
     @Autowired('focusService') private focusService: FocusService;
     @Autowired('ssrmNodeManager') private nodeManager: NodeManager;
+    @Autowired('rowModel') private serverSideRowModel: ServerSideRowModel;
 
     /**
      * Indicates whether this is still the live dataset for this store (used for ignoring old requests after purge)
@@ -89,7 +91,7 @@ export class LazyCache extends BeanStub {
         this.defaultNodeIdPrefix = this.blockUtils.createNodeIdPrefix(this.store.getParentNode());
         this.rowLoader = this.createManagedBean(new LazyBlockLoader(this, this.store.getParentNode(), this.storeParams));
         this.getRowIdFunc = this.gridOptionsService.getCallback('getRowId');
-        this.isMasterDetail = this.gridOptionsService.isMasterDetail();
+        this.isMasterDetail = this.gridOptionsService.is('masterDetail');
     }
 
     @PreDestroy
@@ -112,7 +114,6 @@ export class LazyCache extends BeanStub {
         if (!this.store.isDisplayIndexInStore(displayIndex)) {
             return undefined;
         }
-
 
         // first try to directly look this node up in the display index map
         const node = this.nodeDisplayIndexMap.get(displayIndex);
@@ -377,17 +378,19 @@ export class LazyCache extends BeanStub {
         // if node already exists, update it or destroy it
         if (lazyNode) {
             const { node } = lazyNode;
-            this.nodesToRefresh.delete(node);
             node.__needsRefreshWhenVisible = false;
 
             // if the node is the same, just update the content
             if (this.doesNodeMatch(data, node)) {
                 this.blockUtils.updateDataIntoRowNode(node, data);
+                this.nodesToRefresh.delete(node);
                 return node;
             }
 
             // if there's no id and this is an open group, protect this node from changes
-            if (this.getRowIdFunc == null && node.group && node.expanded) {
+            // hasChildren also checks for tree data and master detail
+            if (this.getRowIdFunc == null && node.hasChildren() && node.expanded) {
+                this.nodesToRefresh.delete(node);
                 return node;
             }
 
@@ -525,15 +528,16 @@ export class LazyCache extends BeanStub {
         this.nodeMap.delete(lazyNode);
         
         this.nodeDisplayIndexMap.delete(lazyNode.node.rowIndex!);
-        this.nodesToRefresh.delete(lazyNode.node);
         
-        if (lazyNode.node.group && this.nodesToRefresh.size > 0) {
+        if (lazyNode.node.hasChildren() && this.nodesToRefresh.size > 0) {
             // while refreshing, we retain the group nodes so they can be moved
             // without losing state
             this.removedNodeCache.set(lazyNode.node.id!, lazyNode.node);
         } else {
             this.blockUtils.destroyRowNode(lazyNode.node);
         }
+
+        this.nodesToRefresh.delete(lazyNode.node);
     }
 
     public getSsrmParams() {
@@ -706,7 +710,7 @@ export class LazyCache extends BeanStub {
     }
 
     private extractDuplicateIds(rows: any[]) {
-        if (!this.getRowIdFunc == null) {
+        if (this.getRowIdFunc != null) {
             return [];
         }
 
@@ -738,6 +742,10 @@ export class LazyCache extends BeanStub {
                 this.onLoadFailed(firstRowIndex, numberOfRowsExpected);
                 return;
             }
+        }
+
+        if (response.pivotResultFields) {
+            this.serverSideRowModel.generateSecondaryColumns(response.pivotResultFields);
         }
         
         const wasRefreshing = this.nodesToRefresh.size > 0;
@@ -888,7 +896,7 @@ export class LazyCache extends BeanStub {
     public updateRowNodes(updates: any[]): RowNode[] {
         if (this.getRowIdFunc == null) {
             // throw error, as this is type checked in the store. User likely abusing internal apis if here.
-            throw new Error('AG Grid: Insert transactions can only be applied when row ids are supplied.');
+            throw new Error('AG Grid: Transactions can only be applied when row ids are supplied.');
         }
         
         const updatedNodes: RowNode[] = [];
@@ -904,17 +912,20 @@ export class LazyCache extends BeanStub {
     }
 
     public insertRowNodes(inserts: any[], indexToAdd?: number): RowNode[] {
+        // adjust row count to allow for footer row
+        const realRowCount = this.store.getRowCount() - (this.store.getParentNode().sibling ? 1 : 0);
+
         // if missing and we know the last row, we're inserting at the end
-        const addIndex = indexToAdd == null && this.isLastRowKnown ? this.store.getRowCount() : indexToAdd;
+        const addIndex = indexToAdd == null && this.isLastRowKnown ? realRowCount : indexToAdd;
 
         // can't insert nodes past the end of the store
-        if(addIndex == null || this.store.getRowCount() < addIndex) {
+        if(addIndex == null || realRowCount < addIndex) {
             return [];
         }
 
         if (this.getRowIdFunc == null) {
             // throw error, as this is type checked in the store. User likely abusing internal apis if here.
-            throw new Error('AG Grid: Insert transactions can only be applied when row ids are supplied.');
+            throw new Error('AG Grid: Transactions can only be applied when row ids are supplied.');
         }
 
         const uniqueInsertsMap: { [id: string]: any } = {};
@@ -967,7 +978,7 @@ export class LazyCache extends BeanStub {
     public removeRowNodes(idsToRemove: string[]): RowNode[] {
         if (this.getRowIdFunc == null) {
             // throw error, as this is type checked in the store. User likely abusing internal apis if here.
-            throw new Error('AG Grid: Insert transactions can only be applied when row ids are supplied.');
+            throw new Error('AG Grid: Transactions can only be applied when row ids are supplied.');
         }
 
         const removedNodes: RowNode[] = [];

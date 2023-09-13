@@ -2,7 +2,7 @@ import { ColumnApi } from "./columns/columnApi";
 import { ComponentUtil } from "./components/componentUtil";
 import { Autowired, Bean, PostConstruct, PreDestroy, Qualifier } from "./context/context";
 import { DomLayoutType, GridOptions } from "./entities/gridOptions";
-import { GetGroupAggFilteringParams, GetRowIdParams, RowHeightParams } from "./interfaces/iCallbackParams";
+import { GetGroupAggFilteringParams, GetGroupIncludeFooterParams, GetRowIdParams, RowHeightParams } from "./interfaces/iCallbackParams";
 import { Environment } from "./environment";
 import { AgEvent, Events } from "./events";
 import { EventService } from "./eventService";
@@ -43,6 +43,10 @@ export interface PropertyChangedEvent extends AgEvent {
     type: keyof GridOptions,
     currentValue: any;
     previousValue: any;
+    /** Unique id which can be used to link changes of multiple properties that were updated together.
+     * i.e a user updated multiple properties at the same time.
+     */
+    changeSetId: number;
 }
 
 export type PropertyChangedListener<T extends PropertyChangedEvent> = (event: T) => void
@@ -175,13 +179,41 @@ export class GridOptionsService {
     }
 
     /**
+     * DO NOT USE - only for use for ComponentUtil applyChanges via GridApi.
+     * Use `set` method instead.
+     * Only update the property value, don't fire any events. This enables all properties
+     * that have been updated together to be updated before any events get triggered to avoid
+     * out of sync issues.
+     * @param key - key of the GridOption property to update
+     * @param newValue - new value for this property
+     * @returns The `true` if the previous value is not equal to the new value.
+     */
+    public __setPropertyOnly<K extends keyof GridOptions>(
+        key: K,
+        newValue: GridOptions[K]
+    ): boolean {
+        const previousValue = this.gridOptions[key];
+        if (this.gridOptionLookup.has(key)) {
+            this.gridOptions[key] = newValue;
+        }
+        return previousValue !== newValue;
+    }
+
+    /**
      *
      * @param key - key of the GridOption property to update
      * @param newValue - new value for this property
      * @param force - force the property change Event to be fired even if the value has not changed
      * @param eventParams - additional params to merge into the property changed event
+     * @param changeSetId - Change set id used to identify keys that have been updated in the same framework lifecycle update. 
      */
-    public set<K extends keyof GridOptions>(key: K, newValue: GridOptions[K], force = false, eventParams: object = {}): void {
+    public set<K extends keyof GridOptions>(
+        key: K,
+        newValue: GridOptions[K],
+        force = false,
+        eventParams: object = {},
+        changeSetId = -1
+    ): void {
         if (this.gridOptionLookup.has(key)) {
             const previousValue = this.gridOptions[key];
             if (force || previousValue !== newValue) {
@@ -190,7 +222,8 @@ export class GridOptionsService {
                     type: key,
                     currentValue: newValue,
                     previousValue: previousValue,
-                    ...eventParams
+                    changeSetId,
+                    ...eventParams,
                 };
                 this.propertyEventService.dispatchEvent(event);
             }
@@ -325,10 +358,9 @@ export class GridOptionsService {
             return this.environment.getDefaultRowHeight();
         }
 
-        const rowHeight = this.gridOptions.rowHeight;
+        const rowHeight = this.environment.refreshRowHeightVariable();
 
-        if (rowHeight && this.isNumeric(rowHeight)) {
-            this.environment.setRowHeightVariable(rowHeight);
+        if (rowHeight !== -1) {
             return rowHeight;
         }
 
@@ -409,20 +441,10 @@ export class GridOptionsService {
         return true;
     }
 
-    public isTreeData(): boolean {
-        return this.is('treeData') && ModuleRegistry.__assertRegistered(ModuleNames.RowGroupingModule, 'Tree Data', this.api.getGridId());
-    }
-    public isMasterDetail() {
-        return this.is('masterDetail') && ModuleRegistry.__assertRegistered(ModuleNames.MasterDetailModule, 'masterDetail', this.api.getGridId());
-    }
-    public isEnableRangeSelection(): boolean {
-        return this.is('enableRangeSelection') && ModuleRegistry.__isRegistered(ModuleNames.RangeSelectionModule, this.api.getGridId());
-    }
-
     public isColumnsSortingCoupledToGroup(): boolean {
         const autoGroupColumnDef = this.gridOptions.autoGroupColumnDef;
         const isClientSideRowModel = this.isRowModelType('clientSide');
-        return isClientSideRowModel && !autoGroupColumnDef?.comparator && !this.isTreeData();
+        return isClientSideRowModel && !autoGroupColumnDef?.comparator && !this.is('treeData');
     }
 
     public getGroupAggFiltering(): ((params: WithoutGridCommon<GetGroupAggFilteringParams>) => boolean) | undefined {
@@ -438,6 +460,26 @@ export class GridOptionsService {
 
         return undefined;
     }
+
+    public isGroupIncludeFooterTrueOrCallback(): boolean{
+        const userValue = this.gridOptions.groupIncludeFooter;
+        return isTrue(userValue) || typeof userValue === 'function';
+    }
+
+    public getGroupIncludeFooter(): (params: WithoutGridCommon<GetGroupIncludeFooterParams>) => boolean{
+        const userValue = this.gridOptions.groupIncludeFooter;
+
+        if (typeof userValue === 'function') {
+            return this.getCallback('groupIncludeFooter' as any) as any;
+        }
+
+        if (isTrue(userValue)) {
+            return () => true; 
+        }
+
+        return () => false;
+    }
+
     public isGroupMultiAutoColumn() {
         if (this.gridOptions.groupDisplayType) {
             return matchesGroupDisplayType('multipleColumns', this.gridOptions.groupDisplayType);

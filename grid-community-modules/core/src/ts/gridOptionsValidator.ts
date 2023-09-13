@@ -87,6 +87,10 @@ export class GridOptionsValidator {
         validateRegistered('getMainMenuItems', ModuleNames.MenuModule);
         validateRegistered('getContextMenuItems', ModuleNames.MenuModule);
         validateRegistered('allowContextMenuWithControlKey', ModuleNames.MenuModule);
+        validateRegistered('enableAdvancedFilter', ModuleNames.AdvancedFilterModule);
+        validateRegistered('treeData', ModuleNames.RowGroupingModule);
+        validateRegistered('enableRangeSelection', ModuleNames.RangeSelectionModule);
+        validateRegistered('masterDetail', ModuleNames.MasterDetailModule);
     }
 
     private checkColumnDefProperties() {
@@ -125,14 +129,25 @@ export class GridOptionsValidator {
             serverSide: ['headerCheckboxSelectionFilteredOnly', 'headerCheckboxSelectionCurrentPageOnly'],
             clientSide: [],
         };
-        
+
         const unsupportedProperties = unsupportedPropertiesMap[rowModel];
 
-        if (!unsupportedProperties?.length) {
+        if (!unsupportedProperties) {
             return;
         }
 
+        const isMultiSelect = this.gridOptionsService.get('rowSelection') === 'multiple';
+        const multiSelectDependencies = ['headerCheckboxSelection', 'headerCheckboxSelectionFilteredOnly', 'headerCheckboxSelectionCurrentPageOnly'];
+
         const validateColDef = (colDef: ColDef | ColGroupDef) => {
+            if (!isMultiSelect) {
+                multiSelectDependencies.forEach(property => {
+                    if (property in colDef && !!(colDef as any)[property]) {
+                        console.warn(`AG Grid: Column property ${property} is not supported unless rowSelection='multiple'.`);
+                    }
+                });
+            }
+
             unsupportedProperties.forEach(property => {
                 if (property in colDef && !!(colDef as any)[property]) {
                     console.warn(`AG Grid: Column property ${property} is not supported with the row model type ${rowModel}.`);

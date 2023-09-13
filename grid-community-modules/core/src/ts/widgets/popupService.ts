@@ -45,6 +45,7 @@ export interface AgPopup {
     hideFunc: () => void;
     isAnchored: boolean;
     instanceId: number;
+    alignedToElement?: HTMLElement;
     stopAnchoringPromise?: AgPromise<() => void>;
 }
 
@@ -122,12 +123,21 @@ export class PopupService extends BeanStub {
     }
 
     public positionPopupForMenu(params: { eventSource: HTMLElement; ePopup: HTMLElement; }): void {
-        const sourceRect = params.eventSource.getBoundingClientRect();
-        const parentRect = this.getParentRect();
-        const y = this.keepXYWithinBounds(params.ePopup, sourceRect.top - parentRect.top, DIRECTION.vertical);
+        const { eventSource, ePopup } = params;
 
-        const minWidth = (params.ePopup.clientWidth > 0) ? params.ePopup.clientWidth : 200;
-        params.ePopup.style.minWidth = `${minWidth}px`;
+        const popupIdx = this.getPopupIndex(ePopup);
+
+        if (popupIdx !== -1) {
+            const popup = this.popupList[popupIdx];
+            popup.alignedToElement = eventSource;
+        }
+
+        const sourceRect = eventSource.getBoundingClientRect();
+        const parentRect = this.getParentRect();
+        const y = this.keepXYWithinBounds(ePopup, sourceRect.top - parentRect.top, DIRECTION.vertical);
+
+        const minWidth = (ePopup.clientWidth > 0) ? ePopup.clientWidth : 200;
+        ePopup.style.minWidth = `${minWidth}px`;
         const widthOfParent = parentRect.right - parentRect.left;
         const maxX = widthOfParent - minWidth;
 
@@ -140,23 +150,27 @@ export class PopupService extends BeanStub {
             x = xLeftPosition();
             if (x < 0) {
                 x = xRightPosition();
+                this.setAlignedStyles(ePopup, 'left');
             }
             if (x > maxX) {
                 x = 0;
+                this.setAlignedStyles(ePopup, 'right');
             }
         } else {
             // for LTR, try right first
             x = xRightPosition();
             if (x > maxX) {
                 x = xLeftPosition();
+                this.setAlignedStyles(ePopup, 'right');
             }
             if (x < 0) {
                 x = 0;
+                this.setAlignedStyles(ePopup, 'left');
             }
         }
 
-        params.ePopup.style.left = `${x}px`;
-        params.ePopup.style.top = `${y}px`;
+        ePopup.style.left = `${x}px`;
+        ePopup.style.top = `${y}px`;
 
         function xRightPosition(): number {
             return sourceRect.right - parentRect.left - 2;
@@ -191,32 +205,91 @@ export class PopupService extends BeanStub {
     }
 
     public positionPopupByComponent(params: PopupPositionParams & { type: string, eventSource: HTMLElement }) {
-        const sourceRect = params.eventSource.getBoundingClientRect();
-        const alignSide = params.alignSide || 'left';
-        const position = params.position || 'over';
-        const parentRect = this.getParentRect();
+        const { ePopup, nudgeX, nudgeY, keepWithinBounds, eventSource, alignSide = 'left', position = 'over', column, rowNode, type } = params;
+
+        const sourceRect = eventSource.getBoundingClientRect();
+        const parentRect = this.getParentRect() as DOMRect;
+
+        const popupIdx = this.getPopupIndex(ePopup);
+
+
+        if (popupIdx !== -1) {
+            const popup = this.popupList[popupIdx];
+            popup.alignedToElement = eventSource;
+        }
 
         const updatePosition = () => {
             let x = sourceRect.left - parentRect.left;
             if (alignSide === 'right') {
-                x -= (params.ePopup.offsetWidth - sourceRect.width);
+                x -= (ePopup.offsetWidth - sourceRect.width);
             }
 
-            const y = position === 'over'
-                ? (sourceRect.top - parentRect.top)
-                : (sourceRect.top - parentRect.top + sourceRect.height);
+            let y;
+
+            if (position === 'over') {
+                y = (sourceRect.top - parentRect.top);
+                this.setAlignedStyles(ePopup, 'over');
+            } else {
+                this.setAlignedStyles(ePopup, 'under');
+                const alignSide = this.shouldRenderUnderOrAbove(ePopup, sourceRect, parentRect, params.nudgeY || 0);
+                if (alignSide === 'under') {
+                    y = (sourceRect.top - parentRect.top + sourceRect.height);
+                } else {
+                    y = (sourceRect.top - ePopup.offsetHeight - (nudgeY || 0) * 2) - parentRect.top;
+                }
+            }
 
             return { x, y };
         };
 
         this.positionPopup({
-            ePopup: params.ePopup,
-            nudgeX: params.nudgeX,
-            nudgeY: params.nudgeY,
-            keepWithinBounds: params.keepWithinBounds,
+            ePopup,
+            nudgeX,
+            nudgeY,
+            keepWithinBounds,
             updatePosition,
-            postProcessCallback: () => this.callPostProcessPopup(params.type, params.ePopup, params.eventSource, null, params.column, params.rowNode)
+            postProcessCallback: () => this.callPostProcessPopup(type, ePopup, eventSource, null, column, rowNode)
         });
+    }
+
+    private shouldRenderUnderOrAbove(ePopup: HTMLElement, targetCompRect: DOMRect, parentRect: DOMRect, nudgeY: number): 'under' | 'above' {
+        const spaceAvailableUnder = parentRect.bottom - targetCompRect.bottom;
+        const spaceAvailableAbove = targetCompRect.top - parentRect.top;
+        const spaceRequired = ePopup.offsetHeight + nudgeY;
+
+        if (spaceAvailableUnder > spaceRequired) {
+            return 'under';
+        }
+
+        if (spaceAvailableAbove > spaceRequired || spaceAvailableAbove > spaceAvailableUnder) {
+            return 'above';
+        }
+
+        return 'under';
+    }
+
+    private setAlignedStyles(ePopup: HTMLElement, positioned: 'right' | 'left' | 'over' | 'above' | 'under' | null) {
+        const popupIdx = this.getPopupIndex(ePopup);
+
+        if (popupIdx === -1) { return; }
+
+        const popup = this.popupList[popupIdx];
+
+        const { alignedToElement } = popup;
+
+        if (!alignedToElement) { return; }
+
+        const positions = ['right', 'left', 'over', 'above', 'under'];
+
+        positions.forEach(position => {
+            alignedToElement.classList.remove(`ag-has-popup-positioned-${position}`)
+            ePopup.classList.remove(`ag-popup-positioned-${position}`);
+        });
+
+        if (!positioned) { return; }
+
+        alignedToElement.classList.add(`ag-has-popup-positioned-${positioned}`);
+        ePopup.classList.add(`ag-popup-positioned-${positioned}`);
     }
 
     private callPostProcessPopup(
@@ -354,7 +427,7 @@ export class PopupService extends BeanStub {
             return { hideFunc: () => { } };
         }
 
-        const pos = this.popupList.findIndex(popup => popup.element === eChild);
+        const pos = this.getPopupIndex(eChild);
 
         if (pos !== -1) {
             const popup = this.popupList[pos];
@@ -458,8 +531,6 @@ export class PopupService extends BeanStub {
                 // we don't hide popup if the event was on the child, or any
                 // children of this child
                 this.isEventFromCurrentPopup({ mouseEvent, touchEvent }, popupEl) ||
-                // if the event to close is actually the open event, then ignore it
-                this.isEventSameChainAsOriginalEvent({ originalMouseEvent: pointerEvent, mouseEvent, touchEvent }) ||
                 // this method should only be called once. the client can have different
                 // paths, each one wanting to close, so this method may be called multiple times.
                 popupHidden
@@ -521,10 +592,16 @@ export class PopupService extends BeanStub {
         }
     }
 
-    public setPopupPositionRelatedToElement(popupEl: HTMLElement, relativeElement?: HTMLElement | null): AgPromise<() => void> | undefined {
-        const popup = this.popupList.find(p => p.element === popupEl);
+    private getPopupIndex(el: HTMLElement): number {
+        return this.popupList.findIndex(p => p.element === el);
+    }
 
-        if (!popup) { return; }
+    public setPopupPositionRelatedToElement(popupEl: HTMLElement, relativeElement?: HTMLElement | null): AgPromise<() => void> | undefined {
+        const popupIndex = this.getPopupIndex(popupEl);
+
+        if (popupIndex === -1) { return; }
+
+        const popup = this.popupList[popupIndex];
 
         if (popup.stopAnchoringPromise) {
             popup.stopAnchoringPromise.then(destroyFunc => destroyFunc && destroyFunc());
@@ -550,6 +627,7 @@ export class PopupService extends BeanStub {
     }
 
     private removePopupFromPopupList(element: HTMLElement): void {
+        this.setAlignedStyles(element, null);
         this.setPopupPositionRelatedToElement(element, null);
 
         this.popupList = this.popupList.filter(p => p.element !== element);
@@ -625,7 +703,7 @@ export class PopupService extends BeanStub {
 
         if (!event) { return false; }
 
-        const indexOfThisChild = this.popupList.findIndex(popup => popup.element === target);
+        const indexOfThisChild = this.getPopupIndex(target);
 
         if (indexOfThisChild === -1) { return false; }
 
@@ -648,41 +726,6 @@ export class PopupService extends BeanStub {
                 return true;
             }
             el = el.parentElement;
-        }
-
-        return false;
-    }
-
-    // in some browsers, the context menu event can be fired before the click event, which means
-    // the context menu event could open the popup, but then the click event closes it straight away.
-    private isEventSameChainAsOriginalEvent(params: PopupEventParams): boolean {
-        const { originalMouseEvent, mouseEvent, touchEvent } = params;
-        // we check the coordinates of the event, to see if it's the same event. there is a 1 / 1000 chance that
-        // the event is a different event, however that is an edge case that is not very relevant (the user clicking
-        // twice on the same location isn't a normal path).
-
-        // event could be mouse event or touch event.
-        let mouseEventOrTouch: MouseEvent | Touch | null = null;
-
-        if (mouseEvent) {
-            // mouse event can be used direction, it has coordinates
-            mouseEventOrTouch = mouseEvent;
-        } else if (touchEvent) {
-            // touch event doesn't have coordinates, need it's touch object
-            mouseEventOrTouch = touchEvent.touches[0];
-        }
-        if (mouseEventOrTouch && originalMouseEvent) {
-            // for x, allow 4px margin, to cover iPads, where touch (which opens menu) is followed
-            // by browser click (when you finger up, touch is interrupted as click in browser)
-            const screenX = mouseEvent ? mouseEvent.screenX : 0;
-            const screenY = mouseEvent ? mouseEvent.screenY : 0;
-
-            const xMatch = Math.abs(originalMouseEvent.screenX - screenX) < 5;
-            const yMatch = Math.abs(originalMouseEvent.screenY - screenY) < 5;
-
-            if (xMatch && yMatch) {
-                return true;
-            }
         }
 
         return false;

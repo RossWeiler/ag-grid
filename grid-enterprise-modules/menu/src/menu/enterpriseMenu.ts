@@ -197,7 +197,9 @@ export class EnterpriseMenuFactory extends BeanStub implements IMenuFactory {
             const isKeyboardEvent = e instanceof KeyboardEvent;
             if (!isKeyboardEvent || !eventSource) { return; }
 
-            if (_.isVisible(eventSource)) {
+            const isColumnStillVisible = this.columnModel.getAllDisplayedColumns().some(col => col === column);
+
+            if (isColumnStillVisible && _.isVisible(eventSource)) {
                 const focusableEl = this.focusService.findTabbableParent(eventSource);
                 if (focusableEl) {
                     if (column) {
@@ -425,7 +427,7 @@ export class EnterpriseMenu extends BeanStub {
 
         const isInMemoryRowModel = this.rowModel.getType() === 'clientSide';
 
-        const usingTreeData = this.gridOptionsService.isTreeData();
+        const usingTreeData = this.gridOptionsService.is('treeData');
 
         const allowValueAgg =
             // if primary, then only allow aggValue if grouping and it's a value columns
@@ -448,6 +450,10 @@ export class EnterpriseMenu extends BeanStub {
         result.push('autoSizeThis');
         result.push('autoSizeAll');
         result.push(EnterpriseMenu.MENU_ITEM_SEPARATOR);
+
+        if (!!this.column.getColDef().showRowGroup) {
+            result.push('rowUnGroup');
+        }
 
         if (allowRowGroup && this.column.isPrimary()) {
             if (groupedByThisColumn) {

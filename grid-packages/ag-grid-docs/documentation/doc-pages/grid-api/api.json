@@ -213,7 +213,37 @@
         "getFilterModel": {},
         "setFilterModel": {},
         "onFilterChanged": {},
-        "destroyFilter": {}
+        "destroyFilter": {},
+        "getAdvancedFilterModel":  {
+            "more": {
+                "name": "Advanced Filter",
+                "url": "/filter-advanced/#filter-model--api"
+            }
+        },
+        "setAdvancedFilterModel":  {
+            "more": {
+                "name": "Advanced Filter",
+                "url": "/filter-advanced/#filter-model--api"
+            }
+        },
+        "setEnableAdvancedFilter":  {
+            "more": {
+                "name": "Advanced Filter",
+                "url": "/filter-advanced/"
+            }
+        },
+        "setIncludeHiddenColumnsInAdvancedFilter":  {
+            "more": {
+                "name": "Advanced Filter",
+                "url": "/filter-advanced/#including-hidden-columns"
+            }
+        },
+        "setAdvancedFilterParent":  {
+            "more": {
+                "name": "Advanced Filter",
+                "url": "/filter-advanced/#advanced-filter-parent"
+            }
+        }
     },
     "navigation": {
         "meta": {
@@ -788,6 +818,12 @@
             "more": {
                 "name": "Transactions",
                 "url": "/server-side-model-updating-transactions/#asynchronous-updates"
+            }
+        },
+        "applyServerSideRowData": {
+            "more": {
+                "name": "Providing Additional Data",
+                "url": "/server-side-model-configuration/#providing-additional-data"
             }
         },
         "getServerSideSelectionState": {

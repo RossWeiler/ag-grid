@@ -152,7 +152,6 @@ export class GridSerializer extends BeanStub {
                 const groupInstanceIdCreator: GroupInstanceIdCreator = new GroupInstanceIdCreator();
                 const displayedGroups: IHeaderColumn[] = this.displayedGroupCreator.createDisplayedGroups(
                     columnsToExport,
-                    this.columnModel.getGridBalancedTree(),
                     groupInstanceIdCreator,
                     null
                 );
@@ -316,7 +315,7 @@ export class GridSerializer extends BeanStub {
 
         if (allColumns && !isPivotMode) {
             // add auto group column for tree data
-            const columns = this.gridOptionsService.isTreeData()
+            const columns = this.gridOptionsService.is('treeData')
                 ? this.columnModel.getGridColumns([GROUP_AUTO_COLUMN_ID])
                 : [];
 

@@ -77,7 +77,7 @@ export class Component extends BeanStub {
         };
     }
 
-    public setTooltip(newTooltipText?: string | null): void {
+    public setTooltip(newTooltipText?: string | null, showDelayOverride?: number, hideDelayOverride?: number): void {
 
         const removeTooltip = () => {
             if (this.usingBrowserTooltips) {
@@ -91,7 +91,7 @@ export class Component extends BeanStub {
             if (this.usingBrowserTooltips) {
                 this.getGui().setAttribute('title', this.tooltipText!);
             } else {
-                this.tooltipFeature = this.createBean(new CustomTooltipFeature(this));
+                this.tooltipFeature = this.createBean(new CustomTooltipFeature(this, showDelayOverride, hideDelayOverride));
             }
         };
 
@@ -278,6 +278,10 @@ export class Component extends BeanStub {
 
     public getFocusableElement(): HTMLElement {
         return this.eGui;
+    }
+
+    public getAriaElement(): Element {
+        return this.getFocusableElement();
     }
 
     public setParentComponent(component: Component) {

@@ -25,7 +25,10 @@ import {
     Beans,
     SortModelItem,
     WithoutGridCommon,
-    RowModelType
+    RowModelType,
+    Optional,
+    IPivotColDefService,
+    LoadSuccessParams,
 } from "@ag-grid-community/core";
 
 import { NodeManager } from "./nodeManager";
@@ -56,6 +59,7 @@ export class ServerSideRowModel extends BeanStub implements IServerSideRowModel 
     @Autowired('ssrmNodeManager') private nodeManager: NodeManager;
     @Autowired('ssrmStoreFactory') private storeFactory: StoreFactory;
     @Autowired('beans') private beans: Beans;
+    @Optional('pivotColDefService') private pivotColDefService: IPivotColDefService;
 
     private onRowHeightChanged_debounced = _.debounce(this.onRowHeightChanged.bind(this), 100);
 
@@ -67,6 +71,8 @@ export class ServerSideRowModel extends BeanStub implements IServerSideRowModel 
     private pauseStoreUpdateListening = false;
 
     private started = false;
+
+    private managingPivotResultColumns = false;
 
     // we don't implement as lazy row heights is not supported in this row model
     public ensureRowHeightsValid(): boolean { return false; }
@@ -128,6 +134,21 @@ export class ServerSideRowModel extends BeanStub implements IServerSideRowModel 
         this.destroyDatasource();
         this.datasource = datasource;
         this.resetRootStore();
+    }
+
+    public applyRowData(rowDataParams: LoadSuccessParams, startRow: number, route: string[]) {
+        const rootStore = this.getRootStore();
+        if (!rootStore) { return; }
+
+        const storeToExecuteOn = rootStore.getChildStore(route);
+
+        if (!storeToExecuteOn) { return };
+    
+        if (storeToExecuteOn instanceof LazyStore) {
+            storeToExecuteOn.applyRowData(rowDataParams, startRow, rowDataParams.rowData.length);
+        } else if (storeToExecuteOn instanceof FullStore){
+            storeToExecuteOn.processServerResult(rowDataParams);
+        }
     }
 
     public isLastRowIndexKnown(): boolean {
@@ -216,6 +237,12 @@ export class ServerSideRowModel extends BeanStub implements IServerSideRowModel 
         this.onStoreUpdated();
     }
 
+    public generateSecondaryColumns(pivotFields: string[]) {
+        const pivotColumnGroupDefs = this.pivotColDefService.createColDefsFromFields(pivotFields);
+        this.managingPivotResultColumns = true;
+        this.columnModel.setSecondaryColumns(pivotColumnGroupDefs, "rowModelUpdated");
+    };
+
     public resetRootStore(): void {
         this.destroyRootStore();
 
@@ -227,6 +254,12 @@ export class ServerSideRowModel extends BeanStub implements IServerSideRowModel 
             this.storeParams = this.createStoreParams();
             this.rootNode.childStore = this.createBean(this.storeFactory.createStore(this.storeParams, this.rootNode));
             this.updateRowIndexesAndBounds();
+        }
+
+        if (this.managingPivotResultColumns) {
+            // if managing pivot columns, also reset secondary columns.
+            this.columnModel.setSecondaryColumns(null);
+            this.managingPivotResultColumns = false;
         }
 
         // this event shows/hides 'no rows' overlay

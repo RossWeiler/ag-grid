@@ -821,6 +821,25 @@
         justify-content: center;
     }
 
+    .ag-advanced-filter-header {
+        position: relative;
+        display: flex;
+        align-items: center;
+        padding-left: var(--ag-cell-horizontal-padding);
+        padding-right: var(--ag-cell-horizontal-padding);
+    }
+
+    .ag-advanced-filter {
+        display: flex;
+        align-items: center;
+        width: 100%;
+    }
+
+    .ag-advanced-filter-apply-button {
+        line-height: normal;
+        @include ag.unthemed-rtl((margin-left: calc(var(--ag-grid-size) * 2)));
+    }
+
     // /**
     //  ****************************
     //  * Floating Filter
@@ -1132,14 +1151,17 @@
 
     .ag-tooltip {
         position: absolute;
-        pointer-events: none;
         z-index: 99999;
     }
 
     .ag-tooltip-custom {
         position: absolute;
-        pointer-events: none;
         z-index: 99999;
+    }
+
+    .ag-tooltip:not(.ag-tooltip-interactive),
+    .ag-tooltip-custom:not(.ag-tooltip-interactive) {
+        pointer-events: none;
     }
 
     // /**
@@ -1225,26 +1247,27 @@
     .ag-rich-select {
         cursor: default;
         outline: none;
+        height: 100%;
     }
 
     .ag-rich-select-value {
         display: flex;
         align-items: center;
+        height: 100%;
+        .ag-picker-field-display {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            &.ag-display-as-placeholder {
+                opacity: 0.5;
+            }
+        }
     }
-
-    .ag-rich-select-value-icon {
-        flex: 1 1 auto;
-        order: 1;
-        @include ag.unthemed-rtl(( text-align: right ));
-    }
-
 
     .ag-rich-select-list {
         position: relative;
-    }
-
-    .ag-rich-select-virtual-list-item {
-        display: flex;
+        .ag-loading-text {
+            min-height: 2rem;
+        }
     }
 
     .ag-rich-select-row {
@@ -1253,6 +1276,60 @@
         align-items: center;
         white-space: nowrap;
         overflow: hidden;
+        height: 100%;
+    }
+
+    .ag-rich-select-field-input {
+        flex: 1 1 auto;
+        .ag-input-field-input {
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            text-overflow: ellipsis;
+            &::placeholder {
+                opacity: 0.8;
+            }
+        }
+    }
+
+    // /**
+    //  ****************************
+    //  * Autocomplete
+    //  ****************************
+    // */
+    .ag-autocomplete {
+        align-items: center;
+        display: flex;
+
+        > * {
+            flex: 1 1 auto;
+        }
+    }
+
+    .ag-autocomplete-list-popup {
+        position: absolute;
+        @include ag.selectable(none);
+    }
+
+    .ag-autocomplete-list {
+        position: relative;
+    }
+
+    .ag-autocomplete-virtual-list-item {
+        display: flex;
+    }
+    
+    .ag-autocomplete-row {
+        display: flex;
+        flex: 1 1 auto;
+        align-items: center;
+        overflow: hidden;
+    }
+
+    .ag-autocomplete-row-label {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     // /**

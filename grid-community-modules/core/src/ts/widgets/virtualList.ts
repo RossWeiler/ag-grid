@@ -17,7 +17,17 @@ export interface VirtualListModel {
     areRowsEqual?(oldRow: any, newRow: any): boolean;
 }
 
+interface VirtualListParams {
+    cssIdentifier?: string;
+    ariaRole?: string;
+    listName?: string;
+}
+
 export class VirtualList extends TabGuardComp {
+    private readonly cssIdentifier: string;
+    private readonly ariaRole: string;
+    private listName?: string;
+
     private model: VirtualListModel;
     private renderedRows = new Map<number, { rowComponent: Component; eDiv: HTMLDivElement; value: any; }>();
     private componentCreator: (value: any, listItemElement: HTMLElement) => Component;
@@ -28,12 +38,14 @@ export class VirtualList extends TabGuardComp {
     @Autowired('resizeObserverService') private readonly resizeObserverService: ResizeObserverService;
     @RefSelector('eContainer') private readonly eContainer: HTMLElement;
 
-    constructor(
-        private readonly cssIdentifier = 'default',
-        private readonly ariaRole = 'listbox',
-        private listName?: string
-    ) {
-        super(VirtualList.getTemplate(cssIdentifier));
+    constructor(params?: VirtualListParams) {
+        super(VirtualList.getTemplate(params?.cssIdentifier || 'default'));
+
+        const { cssIdentifier = 'default', ariaRole = 'listbox', listName } = params || {};
+
+        this.cssIdentifier = cssIdentifier;
+        this.ariaRole = ariaRole;
+        this.listName = listName;
     }
 
     @PostConstruct
@@ -51,7 +63,6 @@ export class VirtualList extends TabGuardComp {
         });
 
         this.setAriaProperties();
-
         this.addManagedListener(this.eventService, Events.EVENT_GRID_STYLES_CHANGED, this.onGridStylesChanged.bind(this));
     }
 
@@ -158,22 +169,26 @@ export class VirtualList extends TabGuardComp {
     }
 
     private static getTemplate(cssIdentifier: string) {
-        return /* html */`
-            <div class="ag-virtual-list-viewport ag-${cssIdentifier}-virtual-list-viewport" role="presentation">
+        return (/* html */
+            `<div class="ag-virtual-list-viewport ag-${cssIdentifier}-virtual-list-viewport" role="presentation">
                 <div class="ag-virtual-list-container ag-${cssIdentifier}-virtual-list-container" ref="eContainer"></div>
-            </div>`;
+            </div>`
+        );
     }
 
     private getItemHeight(): number {
         return this.environment.getListItemHeight();
     }
 
-    public ensureIndexVisible(index: number): void {
+    /**
+     * Returns true if the view had to be scrolled, otherwise, false.
+     */
+    public ensureIndexVisible(index: number, scrollPartialIntoView: boolean = true): boolean {
         const lastRow = this.model.getRowCount();
 
         if (typeof index !== 'number' || index < 0 || index >= lastRow) {
             console.warn('AG Grid: invalid row index for ensureIndexVisible: ' + index);
-            return;
+            return false;
         }
 
         const rowTopPixel = index * this.rowHeight;
@@ -184,17 +199,24 @@ export class VirtualList extends TabGuardComp {
         const viewportHeight = eGui.offsetHeight;
         const viewportBottomPixel = viewportTopPixel + viewportHeight;
 
-        const viewportScrolledPastRow = viewportTopPixel > rowTopPixel;
-        const viewportScrolledBeforeRow = viewportBottomPixel < rowBottomPixel;
+        const diff = scrollPartialIntoView ? 0 : this.rowHeight;
+        const viewportScrolledPastRow = viewportTopPixel > rowTopPixel + diff;
+        const viewportScrolledBeforeRow = viewportBottomPixel < rowBottomPixel - diff;
 
         if (viewportScrolledPastRow) {
             // if row is before, scroll up with row at top
             eGui.scrollTop = rowTopPixel;
-        } else if (viewportScrolledBeforeRow) {
+            return true;
+        }
+        
+        if (viewportScrolledBeforeRow) {
             // if row is below, scroll down with row at bottom
             const newScrollPosition = rowBottomPixel - viewportHeight;
             eGui.scrollTop = newScrollPosition;
+            return true;
         }
+
+        return false;
     }
 
     public setComponentCreator(componentCreator: (value: any, listItemElement: HTMLElement) => Component): void {
@@ -248,7 +270,7 @@ export class VirtualList extends TabGuardComp {
     }
 
     private drawVirtualRows(softRefresh?: boolean) {
-        if (!this.isAlive()) { return; }
+        if (!this.isAlive() || !this.model) { return; }
 
         const gui = this.getGui();
         const topPixel = gui.scrollTop;
@@ -352,6 +374,10 @@ export class VirtualList extends TabGuardComp {
 
     public setModel(model: VirtualListModel): void {
         this.model = model;
+    }
+
+    public getAriaElement(): Element {
+        return this.eContainer;
     }
 
     public destroy(): void {

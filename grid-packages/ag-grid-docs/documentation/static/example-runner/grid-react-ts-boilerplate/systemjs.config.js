@@ -37,10 +37,10 @@
             css: {
             },
             react: {
-                main: './umd/react.profiling.min.js',
+                main: './umd/react.production.min.js',
             },
             'react-dom': {
-                main: './umd/react-dom.profiling.min.js',
+                main: './umd/react-dom.production.min.js',
             },
             'react-dom/server': {
                 main: '../umd/react-dom-server.browser.production.min.js',
@@ -63,8 +63,8 @@
                 defaultExtension: 'tsx',
             },
             'ag-grid-react': {
-                main: './lib/main.mjs',
-                defaultExtension: 'mjs'
+                main: './lib/main.js',
+                defaultExtension: 'js'
             },
             'ag-grid-community': {
                 main: './dist/ag-grid-community.cjs.min.js',

@@ -82,7 +82,7 @@ Below shows `isServerSideGroupOpenByDefault()` and `getRoute` in action. Note th
     - **[United States, Swimming]**
 - Note **[Zimbabwe]** and **[Zimbabwe, Swimming]** are visibly open by default.
 - Note **[United States, Swimming]** is not visibly open by default, as the parent group 'United States' is not open. However when 'United States' is opened, it's 'Swimming' group is opened by default.
-- Selecting a row and clicking 'Route of Selected' will print the route to the selected node.
+- Selecting a group row and clicking 'Route of Selected' will print the route to the selected node.
 
 <grid-example title='Open by Default' name='open-by-default' type='generated' options='{ "enterprise": true, "extras": ["alasql"], "modules": ["serverside"] }'></grid-example>
 
@@ -98,7 +98,7 @@ To enable [Row Group Footers](/grouping-footers/), set the `groupIncludeFooter` 
 
 <grid-example title='Group Footers' name='group-footer' type='generated' options='{ "enterprise": true, "extras": ["alasql"], "modules": ["serverside"] }'></grid-example>
 
-Row group footers can also be used with `groupDisplayType='multipleColumns`, as demonstrated in the example below.
+Row group footers can also be used with `groupDisplayType='multipleColumns'`, as demonstrated in the example below.
 
 <grid-example title='Multiple Group Columns and Footers' name='group-footer-multiple-cols' type='generated' options='{ "enterprise": true, "extras": ["alasql"], "modules": ["serverside"] }'></grid-example>
 

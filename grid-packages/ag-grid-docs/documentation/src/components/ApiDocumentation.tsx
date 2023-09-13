@@ -404,7 +404,7 @@ const Section: React.FC<SectionProps> = ({
         <div className={styles.apiReferenceOuter}>
             {header}
             <table
-                className={classnames(styles.reference, styles.apiReference)}
+                className={classnames(styles.reference, styles.apiReference, 'no-zebra')}
                 style={config.overrideBottomMargin ? { marginBottom: config.overrideBottomMargin } : {}}
             >
                 <colgroup>
@@ -541,14 +541,20 @@ const Property: React.FC<PropertyCall> = ({ framework, id, name, definition, con
     const wrap = !!config.maxLeftColumnWidth;
 
     // Split display name on capital letter, add <wbr> to improve text splitting across lines
-    const displayNameSplit = displayName
-        .split(/(?=[A-Z])/)
-        .reverse()
-        .reduce((acc, cv) => {
-            return `${cv}<wbr />` + acc;
-        });
+    let displayNameSplit: string;
 
-    const { more } = definition;
+    const { more, isRequired, strikeThrough } = definition;
+    // displayName is hardCoded for isRequired and strikeThrough
+    if (isRequired || strikeThrough) {
+        displayNameSplit = displayName;
+    } else {
+        displayNameSplit = displayName
+            .split(/(?=[A-Z])/)
+            .reverse()
+            .reduce((acc, cv) => {
+                return `${cv}<wbr />` + acc;
+            });
+    }
 
     const formattedDefaultValue = Array.isArray(defaultValue)
         ? '[' +

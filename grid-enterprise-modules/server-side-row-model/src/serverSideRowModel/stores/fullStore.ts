@@ -9,6 +9,7 @@ import {
     LoadSuccessParams,
     NumberSequence,
     PostConstruct,
+    PostSortRowsParams,
     PreDestroy,
     RowBounds,
     RowNode,
@@ -27,9 +28,9 @@ import {
     WithoutGridCommon,
     IsApplyServerSideTransactionParams,
     IRowNode,
-    ISelectionService
+    ISelectionService,
 } from "@ag-grid-community/core";
-import { SSRMParams } from "../serverSideRowModel";
+import { SSRMParams, ServerSideRowModel } from "../serverSideRowModel";
 import { StoreUtils } from "./storeUtils";
 import { BlockUtils } from "../blocks/blockUtils";
 import { NodeManager } from "../nodeManager";
@@ -47,6 +48,7 @@ export class FullStore extends RowNodeBlock implements IServerSideStore {
     @Autowired('ssrmNodeManager') private nodeManager: NodeManager;
     @Autowired('filterManager') private filterManager: FilterManager;
     @Autowired('ssrmTransactionManager') private transactionManager: TransactionManager;
+    @Autowired('rowModel') private serverSideRowModel: ServerSideRowModel;
 
     private readonly level: number;
     private readonly groupLevel: boolean | undefined;
@@ -77,6 +79,8 @@ export class FullStore extends RowNodeBlock implements IServerSideStore {
 
     private info: any = {};
 
+    private postSortFunc: ((params: WithoutGridCommon<PostSortRowsParams>) => void) | undefined;
+
     constructor(ssrmParams: SSRMParams, storeParams: ServerSideGroupLevelParams, parentRowNode: RowNode) {
         // finite block represents a cache with just one block, thus 0 is the id, it's the first block
         super(0);
@@ -89,7 +93,7 @@ export class FullStore extends RowNodeBlock implements IServerSideStore {
 
     @PostConstruct
     private postConstruct(): void {
-        this.usingTreeData = this.gridOptionsService.isTreeData();
+        this.usingTreeData = this.gridOptionsService.is('treeData');
         this.nodeIdPrefix = this.blockUtils.createNodeIdPrefix(this.parentRowNode);
 
         if (!this.usingTreeData && this.groupLevel) {
@@ -109,6 +113,9 @@ export class FullStore extends RowNodeBlock implements IServerSideStore {
 
         this.rowNodeBlockLoader.addBlock(this);
         this.addDestroyFunc(() => this.rowNodeBlockLoader.removeBlock(this));
+
+
+        this.postSortFunc = this.gridOptionsService.getCallback('postSortRows');
     }
 
     @PreDestroy
@@ -207,12 +214,16 @@ export class FullStore extends RowNodeBlock implements IServerSideStore {
         this.flushAsyncTransactions();
     }
 
-    protected processServerResult(params: LoadSuccessParams): void {
+    public processServerResult(params: LoadSuccessParams): void {
         if (!this.isAlive()) { return; }
 
         const info = params.storeInfo || params.groupLevelInfo;
         if (info) {
             Object.assign(this.info, info);
+        }
+
+        if (params.pivotResultFields) {
+            this.serverSideRowModel.generateSecondaryColumns(params.pivotResultFields);
         }
 
         const nodesToRecycle = this.allRowNodes.length > 0 ? this.allNodesMap : undefined;
@@ -302,6 +313,10 @@ export class FullStore extends RowNodeBlock implements IServerSideStore {
         }
 
         this.nodesAfterSort = this.rowNodeSorter.doFullSort(this.nodesAfterFilter, sortOptions);
+        if(this.postSortFunc) {
+            const params: WithoutGridCommon<PostSortRowsParams> = { nodes: this.nodesAfterSort };
+            this.postSortFunc(params);
+        }
     }
 
     private filterRowNodes(): void {

@@ -34,8 +34,8 @@ export class BlockUtils extends BeanStub {
     @PostConstruct
     private postConstruct(): void {
         this.rowHeight = this.gridOptionsService.getRowHeightAsNumber();
-        this.usingTreeData = this.gridOptionsService.isTreeData();
-        this.usingMasterDetail = this.gridOptionsService.isMasterDetail();
+        this.usingTreeData = this.gridOptionsService.is('treeData');
+        this.usingMasterDetail = this.gridOptionsService.is('masterDetail');
     }
 
     public createRowNode(params: {
@@ -79,9 +79,11 @@ export class BlockUtils extends BeanStub {
             rowNode.childStore = null;
         }
 
-        if (rowNode.sibling) {
+        // if this has a footer, destroy that too
+        if (rowNode.sibling && !rowNode.footer) {
             this.destroyRowNode(rowNode.sibling, false);
         }
+    
         // this is needed, so row render knows to fade out the row, otherwise it
         // sees row top is present, and thinks the row should be shown. maybe
         // rowNode should have a flag on whether it is visible???
@@ -118,7 +120,9 @@ export class BlockUtils extends BeanStub {
             }, 'ServerSideBlock-CannotHaveNullOrUndefinedForKey');
         }
 
-        if (this.beans.gridOptionsService.is('groupIncludeFooter')) {
+        const getGroupIncludeFooter = this.beans.gridOptionsService.getGroupIncludeFooter();
+        const doesRowShowFooter = getGroupIncludeFooter({ node: rowNode });
+        if (doesRowShowFooter) {
             rowNode.createFooter();
             if (rowNode.sibling) {
                 rowNode.sibling.uiLevel = rowNode.uiLevel + 1;
@@ -143,6 +147,21 @@ export class BlockUtils extends BeanStub {
             this.setChildCountIntoRowNode(rowNode);
         } else if (rowNode.group) {
             this.setChildCountIntoRowNode(rowNode);
+
+            if (!rowNode.footer) {
+                const getGroupIncludeFooter = this.beans.gridOptionsService.getGroupIncludeFooter();
+                const doesRowShowFooter = getGroupIncludeFooter({ node: rowNode });
+                if (doesRowShowFooter) {
+                    if (rowNode.sibling) {
+                        rowNode.sibling.updateData(data);
+                    } else {
+                        rowNode.createFooter();
+                    }
+                } else if (rowNode.sibling) {
+                    rowNode.destroyFooter();
+                }
+            }
+
             // it's not possible for a node to change whether it's a group or not
             // when doing row grouping (as only rows at certain levels are groups),
             // so nothing to do here
@@ -195,7 +214,7 @@ export class BlockUtils extends BeanStub {
     private setGroupDataIntoRowNode(rowNode: RowNode): void {
         const groupDisplayCols: Column[] = this.columnModel.getGroupDisplayColumns();
 
-        const usingTreeData = this.gridOptionsService.isTreeData();
+        const usingTreeData = this.gridOptionsService.is('treeData');
 
         groupDisplayCols.forEach(col => {
             if (rowNode.groupData == null) {
@@ -230,6 +249,10 @@ export class BlockUtils extends BeanStub {
         rowNode.setRowIndex(displayIndexSeq.next());
         rowNode.setRowTop(nextRowTop.value);
         nextRowTop.value += rowNode.rowHeight!;
+
+        if (rowNode.footer) {
+            return;
+        }
 
         // set child for master / detail
         const hasDetailRow = rowNode.master;
